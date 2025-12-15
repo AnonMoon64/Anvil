@@ -1,0 +1,16 @@
+[
+  [
+    "coinbase",
+    {
+      "balance": -1000,
+      "nonce": 1765778855494
+    }
+  ],
+  [
+    "80606fe20809a5f413ef14f56cbc2d72f539ddb9",
+    {
+      "balance": 1000,
+      "nonce": 0
+    }
+  ]
+]

@@ -1,0 +1,30 @@
+{
+  "name": "anvil-simulation",
+  "version": "1.0.0",
+  "description": "Participation-Weighted Payment Network Simulation",
+  "main": "simulation/index.js",
+  "type": "module",
+  "scripts": {
+    "simulate": "node simulation/index.js",
+    "test": "node simulation/test-runner.js",
+    "stress": "node simulation/stress-test.js",
+    "cheat-ev": "node simulation/cheat-ev-analysis.js",
+    "adaptive": "node simulation/adaptive-fraud-test.js",
+    "load-responsive": "node simulation/load-responsive-test.js",
+    "griefing": "node simulation/griefing-test.js",
+    "edge-cases": "node simulation/edge-cases-test.js",
+    "prototype": "node prototype/local-multinode.js",
+    "all": "node simulation/test-runner.js && node simulation/stress-test.js && node simulation/cheat-ev-analysis.js",
+    "adversarial": "node simulation/adaptive-fraud-test.js && node simulation/load-responsive-test.js && node simulation/griefing-test.js && node simulation/edge-cases-test.js"
+  },
+  "keywords": [
+    "blockchain",
+    "simulation",
+    "participation-weighted",
+    "mining"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.3"
+  }
+}

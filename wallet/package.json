@@ -1,0 +1,57 @@
+{
+  "name": "anvil-wallet",
+  "version": "1.0.0",
+  "description": "Anvil Protocol Desktop Wallet",
+  "main": "electron.cjs",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "vite build && electron .",
+    "build:exe": "vite build && electron-builder --win",
+    "build:mac": "vite build && electron-builder --mac",
+    "build:linux": "vite build && electron-builder --linux"
+  },
+  "keywords": [
+    "anvil",
+    "wallet",
+    "cryptocurrency"
+  ],
+  "author": "Anvil Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "vite": "^7.2.7"
+  },
+  "devDependencies": {
+    "electron": "^39.2.7",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.anvil.wallet",
+    "productName": "Anvil Wallet",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron.cjs"
+    ],
+    "win": {
+      "target": "portable",
+      "icon": "public/anvil-icon.png",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/anvil-icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/anvil-icon.png"
+    }
+  }
+}
