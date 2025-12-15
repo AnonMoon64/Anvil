@@ -1,0 +1,64 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+wallet/dist/
+wallet/release/
+wallet/win-unpacked/
+*.exe
+*.dmg
+*.AppImage
+
+# Node data directories
+data-*/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Cache
+.cache/
+.parcel-cache/
+.vite/
+
+# Electron
+.electron/
+
+# Keys (never commit private keys!)
+*.pem
+*.key
+keypair.json
+
+# Temporary files
+*.tmp
+*.temp
+~$*
