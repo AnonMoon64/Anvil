@@ -259,6 +259,9 @@ const state = {
         endpoints: [],
         supportsRelay: true,
     },
+
+    // Light participants (wallet miners)
+    lightParticipants: new Map(),  // address -> { publicKey, lastSeen, effectiveness, challengesPending, totalChallenges }
 };
 
 // ============================================================================
@@ -903,7 +906,7 @@ function handleRequest(req, res, body) {
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, ngrok-skip-browser-warning');
 
     // Handle preflight
     if (req.method === 'OPTIONS') {
@@ -1123,6 +1126,173 @@ function handleRequest(req, res, body) {
                     endpoints: state.connectivity.endpoints,
                 },
                 stats: state.stats,
+            }));
+            return;
+        }
+
+        // ================================================================
+        // LIGHT PARTICIPANT (WALLET MINING) ENDPOINTS
+        // ================================================================
+
+        // Register as light participant
+        if (path === '/participate/register' && req.method === 'POST') {
+            const { address, publicKey } = JSON.parse(body);
+
+            if (!address) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'Address required' }));
+                return;
+            }
+
+            // Register or update participant
+            const existing = state.lightParticipants.get(address) || {
+                publicKey,
+                effectiveness: 0,
+                totalChallenges: 0,
+                successfulChallenges: 0,
+                joinedAt: Date.now(),
+            };
+
+            existing.publicKey = publicKey;
+            existing.lastSeen = Date.now();
+            existing.challengePending = null;
+
+            state.lightParticipants.set(address, existing);
+
+            console.log(`Light participant registered: ${address.slice(0, 12)}...`);
+
+            res.end(JSON.stringify({
+                ok: true,
+                address,
+                effectiveness: existing.effectiveness,
+                totalChallenges: existing.totalChallenges,
+            }));
+            return;
+        }
+
+        // Poll for challenge (long-poll style)
+        if (path === '/participate/poll' && req.method === 'POST') {
+            const { address } = JSON.parse(body);
+
+            const participant = state.lightParticipants.get(address);
+            if (!participant) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'Not registered' }));
+                return;
+            }
+
+            participant.lastSeen = Date.now();
+
+            // Generate a challenge for this participant
+            const challenge = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                type: 'liveness',
+                nonce: Math.random().toString(36).slice(2, 14),
+                timestamp: Date.now(),
+                deadline: Date.now() + 5000,  // 5 second deadline
+            };
+
+            participant.challengePending = challenge;
+            participant.totalChallenges++;
+
+            res.end(JSON.stringify({
+                ok: true,
+                challenge,
+                effectiveness: participant.effectiveness,
+                totalChallenges: participant.totalChallenges,
+                successfulChallenges: participant.successfulChallenges,
+            }));
+            return;
+        }
+
+        // Respond to challenge
+        if (path === '/participate/respond' && req.method === 'POST') {
+            const { address, challengeId, response } = JSON.parse(body);
+
+            const participant = state.lightParticipants.get(address);
+            if (!participant) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'Not registered' }));
+                return;
+            }
+
+            const pending = participant.challengePending;
+            if (!pending || pending.id !== challengeId) {
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'No matching challenge' }));
+                return;
+            }
+
+            // Check deadline
+            if (Date.now() > pending.deadline) {
+                participant.challengePending = null;
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'Challenge expired' }));
+                return;
+            }
+
+            // Verify response (simple: must match nonce hash)
+            const expectedResponse = hash(pending.nonce);
+            if (response !== expectedResponse) {
+                participant.challengePending = null;
+                res.statusCode = 400;
+                res.end(JSON.stringify({ ok: false, error: 'Invalid response' }));
+                return;
+            }
+
+            // Success! Update effectiveness
+            participant.successfulChallenges++;
+            participant.challengePending = null;
+            participant.lastSuccess = Date.now();
+
+            // Calculate effectiveness: grows over time, max ~95% after 120 days
+            const daysSinceJoin = (Date.now() - participant.joinedAt) / (1000 * 60 * 60 * 24);
+            const successRate = participant.successfulChallenges / Math.max(1, participant.totalChallenges);
+            const timeComponent = 1 - Math.exp(-daysSinceJoin / 40);  // ~95% after 120 days
+            participant.effectiveness = timeComponent * successRate;
+
+            // Award small amount for successful challenge (simplified reward)
+            const rewardPerChallenge = 0.01;  // 0.01 ANVIL per challenge
+            const account = state.accounts.get(address) || { balance: 0, nonce: 0 };
+            account.balance += rewardPerChallenge;
+            state.accounts.set(address, account);
+
+            res.end(JSON.stringify({
+                ok: true,
+                effectiveness: participant.effectiveness,
+                successfulChallenges: participant.successfulChallenges,
+                totalChallenges: participant.totalChallenges,
+                reward: rewardPerChallenge,
+                balance: account.balance,
+            }));
+            return;
+        }
+
+        // Get participant stats
+        if (path.startsWith('/participate/stats/')) {
+            const address = path.split('/participate/stats/')[1];
+            const participant = state.lightParticipants.get(address);
+
+            if (!participant) {
+                res.end(JSON.stringify({
+                    registered: false,
+                    effectiveness: 0,
+                    totalChallenges: 0,
+                    successfulChallenges: 0,
+                }));
+                return;
+            }
+
+            const account = state.accounts.get(address) || { balance: 0 };
+
+            res.end(JSON.stringify({
+                registered: true,
+                effectiveness: participant.effectiveness,
+                totalChallenges: participant.totalChallenges,
+                successfulChallenges: participant.successfulChallenges,
+                balance: account.balance,
+                joinedAt: participant.joinedAt,
+                lastSeen: participant.lastSeen,
             }));
             return;
         }

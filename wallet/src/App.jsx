@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { AnvilClient, loadPreferredNode, savePreferredNode } from './api';
-import { generateKeypair, loadKeypair, saveKeypair, hasKeypair, clearKeypair, sign, hashObject, exportPrivateKey, importPrivateKey } from './crypto';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { AnvilClient, loadPreferredNode, savePreferredNode, fetchSeedNodes } from './api';
+import { generateKeypair, loadKeypair, saveKeypair, hasKeypair, clearKeypair, sign, hashObject, exportPrivateKey, importPrivateKey, sha256 } from './crypto';
 
 // Icons as simple SVG components
 const SendIcon = () => (
@@ -52,17 +52,43 @@ export default function App() {
     const [showBackupModal, setShowBackupModal] = useState(false);
     const [importKeyText, setImportKeyText] = useState('');
 
-    // Initialize wallet
+    // Mining state
+    const [mining, setMining] = useState(false);
+    const [miningStats, setMiningStats] = useState({
+        effectiveness: 0,
+        totalMined: 0,
+        challengesAnswered: 0,
+        uptime: 0,
+        startTime: null,
+    });
+    const miningIntervalRef = useRef(null);
+
+    // Initialize wallet and fetch seed nodes
     useEffect(() => {
         async function init() {
+            // Load wallet
             if (hasKeypair()) {
                 const keypair = await loadKeypair();
                 setWallet(keypair);
             }
+
+            // Always fetch fresh seed node from vaultlock.org
+            try {
+                const seeds = await fetchSeedNodes();
+                if (seeds.length > 0 && seeds[0].name === 'Anvil Seed') {
+                    console.log('Using seed node:', seeds[0].url);
+                    setNodeUrl(seeds[0].url);
+                    client.setNode(seeds[0].url);
+                    savePreferredNode(seeds[0].url);
+                }
+            } catch (err) {
+                console.warn('Seed discovery failed, using default:', err);
+            }
+
             setLoading(false);
         }
         init();
-    }, []);
+    }, [client]);
 
     // Connect to node
     const connectToNode = useCallback(async () => {
@@ -85,6 +111,87 @@ export default function App() {
             console.error('Failed to fetch balance:', err);
         }
     }, [wallet, connected, client]);
+
+    // Mining loop - poll for challenges and respond
+    const miningLoop = useCallback(async () => {
+        if (!wallet || !connected) return;
+
+        try {
+            // Poll for a challenge
+            const pollResult = await client.pollChallenge(wallet.address);
+
+            if (pollResult.ok && pollResult.challenge) {
+                // Compute response (hash of nonce)
+                const response = await sha256(pollResult.challenge.nonce);
+
+                // Submit response
+                const respondResult = await client.respondChallenge(
+                    wallet.address,
+                    pollResult.challenge.id,
+                    response
+                );
+
+                if (respondResult.ok) {
+                    // Update stats
+                    setMiningStats(s => ({
+                        ...s,
+                        effectiveness: respondResult.effectiveness,
+                        totalMined: respondResult.balance || s.totalMined,
+                        challengesAnswered: respondResult.successfulChallenges,
+                    }));
+
+                    // Update balance
+                    setBalance(respondResult.balance);
+
+                    console.log(`Challenge ${pollResult.challenge.id.slice(0, 8)}... answered! +${respondResult.reward} ANVIL`);
+                }
+            }
+        } catch (err) {
+            console.error('Mining loop error:', err.message);
+        }
+    }, [wallet, connected, client]);
+
+    // Start/stop mining
+    const startMining = useCallback(async () => {
+        if (!wallet || !connected) return;
+
+        try {
+            // Register with the node
+            await client.registerParticipant(wallet.address, wallet.publicKey);
+
+            setMining(true);
+            setMiningStats(s => ({ ...s, startTime: Date.now() }));
+
+            // Run mining loop every 3 seconds
+            miningIntervalRef.current = setInterval(miningLoop, 3000);
+
+            // Run immediately
+            miningLoop();
+
+            showAlert('Mining started! Keep wallet open to earn.', 'success');
+        } catch (err) {
+            console.error('Failed to start mining:', err);
+            showAlert('Failed to start mining: ' + err.message, 'error');
+        }
+    }, [wallet, connected, client, miningLoop]);
+
+    const stopMining = useCallback(() => {
+        setMining(false);
+        if (miningIntervalRef.current) {
+            clearInterval(miningIntervalRef.current);
+            miningIntervalRef.current = null;
+        }
+        showAlert('Mining stopped', 'info');
+    }, []);
+
+    // Cleanup mining on unmount
+    useEffect(() => {
+        return () => {
+            if (miningIntervalRef.current) {
+                clearInterval(miningIntervalRef.current);
+            }
+        };
+    }, []);
 
     // Poll connection and balance
     useEffect(() => {
@@ -259,8 +366,8 @@ export default function App() {
                 </div>
             )}
 
-            {/* Node Selector */}
-            <div className="node-selector">
+            {/* Node Selector - Hidden, uses auto-discovery from vaultlock.org */}
+            {/* <div className="node-selector">
                 <input
                     type="text"
                     className="form-input node-input"
@@ -271,7 +378,7 @@ export default function App() {
                 <button className="btn btn-secondary" onClick={() => handleNodeChange(nodeUrl)}>
                     <RefreshIcon />
                 </button>
-            </div>
+            </div> */}
 
             {!wallet ? (
                 /* No Wallet State */
@@ -336,6 +443,12 @@ export default function App() {
                             onClick={() => setActiveTab('send')}
                         >
                             Send
+                        </button>
+                        <button
+                            className={`tab ${activeTab === 'mining' ? 'active' : ''}`}
+                            onClick={() => setActiveTab('mining')}
+                        >
+                            ⛏️ Mine
                         </button>
                         <button
                             className={`tab ${activeTab === 'network' ? 'active' : ''}`}
@@ -418,6 +531,130 @@ export default function App() {
                             >
                                 {sending ? <span className="loading"></span> : <><SendIcon /> Send Transaction</>}
                             </button>
+                        </div>
+                    )}
+
+                    {activeTab === 'mining' && (
+                        <div className="card animate-in">
+                            <div className="card-header">
+                                <span className="card-title">⛏️ Mining Status</span>
+                                <span className={`status-dot ${mining ? 'connected' : ''}`}></span>
+                            </div>
+
+                            {/* Mining Stats */}
+                            <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Status</span>
+                                    <span style={{ color: mining ? 'var(--success)' : 'var(--text-secondary)' }}>
+                                        {mining ? '🟢 Mining' : '⚫ Stopped'}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Effectiveness</span>
+                                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>
+                                        {(miningStats.effectiveness * 100).toFixed(1)}%
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Total Mined</span>
+                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                        {miningStats.totalMined.toFixed(2)} ANVIL
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Challenges Answered</span>
+                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                        {miningStats.challengesAnswered}
+                                    </span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                    <span style={{ color: 'var(--text-secondary)' }}>Uptime</span>
+                                    <span style={{ fontFamily: 'var(--font-mono)' }}>
+                                        {miningStats.startTime
+                                            ? `${Math.floor((Date.now() - miningStats.startTime) / 60000)} min`
+                                            : '0 min'}
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Effectiveness Progress Bar */}
+                            <div style={{ marginBottom: '20px' }}>
+                                <div style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    marginBottom: '8px',
+                                    fontSize: '12px',
+                                    color: 'var(--text-secondary)'
+                                }}>
+                                    <span>Effectiveness Progress</span>
+                                    <span>~{Math.round(miningStats.effectiveness * 120)} / 120 days</span>
+                                </div>
+                                <div style={{
+                                    height: '8px',
+                                    background: 'var(--bg-tertiary)',
+                                    borderRadius: '4px',
+                                    overflow: 'hidden'
+                                }}>
+                                    <div style={{
+                                        width: `${miningStats.effectiveness * 100}%`,
+                                        height: '100%',
+                                        background: 'linear-gradient(90deg, var(--accent), var(--success))',
+                                        borderRadius: '4px',
+                                        transition: 'width 0.5s ease'
+                                    }}></div>
+                                </div>
+                            </div>
+
+                            {/* Info Box */}
+                            <div style={{
+                                background: 'var(--bg-tertiary)',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                marginBottom: '20px',
+                                fontSize: '13px',
+                                color: 'var(--text-secondary)'
+                            }}>
+                                💡 Mining in Anvil means staying online and responding to challenges.
+                                Effectiveness builds over ~120 days. Rewards are proportional to your effectiveness.
+                            </div>
+
+                            {/* Start/Stop Button */}
+                            <button
+                                className={`btn ${mining ? 'btn-secondary' : 'btn-primary'}`}
+                                style={{ width: '100%' }}
+                                onClick={() => {
+                                    if (mining) {
+                                        stopMining();
+                                    } else {
+                                        startMining();
+                                    }
+                                }}
+                                disabled={!connected || !wallet}
+                            >
+                                {mining ? '⏹️ Stop Mining' : '▶️ Start Mining'}
+                            </button>
+
+                            {!connected && (
+                                <p style={{
+                                    color: 'var(--error)',
+                                    fontSize: '13px',
+                                    textAlign: 'center',
+                                    marginTop: '12px'
+                                }}>
+                                    Connect to a node first
+                                </p>
+                            )}
+
+                            {connected && !wallet && (
+                                <p style={{
+                                    color: 'var(--warning)',
+                                    fontSize: '13px',
+                                    textAlign: 'center',
+                                    marginTop: '12px'
+                                }}>
+                                    Create a wallet first
+                                </p>
+                            )}
                         </div>
                     )}
 

@@ -3,10 +3,35 @@
  * Connects to Anvil consensus nodes
  */
 
+// Config URL - fetches current seed node address (can be updated without rebuilding wallet)
+const SEED_CONFIG_URL = 'https://vaultlock.org/api/functions/publicNodeAddress';
+
+// Fallback nodes if config fetch fails
 const DEFAULT_NODES = [
     { name: 'Local Node', url: 'http://localhost:4001' },
     { name: 'Local Node 2', url: 'http://localhost:4002' },
 ];
+
+// Fetch seed node URL from vaultlock.org
+export async function fetchSeedNodes() {
+    try {
+        const response = await fetch(SEED_CONFIG_URL, { cache: 'no-store' });
+        if (response.ok) {
+            const config = await response.json();
+            console.log('Fetched seed config:', config);
+            // Parse nodeAddress from vaultlock API response
+            if (config.nodeAddress) {
+                return [
+                    { name: 'Anvil Seed', url: config.nodeAddress },
+                    ...DEFAULT_NODES
+                ];
+            }
+        }
+    } catch (err) {
+        console.warn('Could not fetch seed config:', err.message);
+    }
+    return DEFAULT_NODES;
+}
 
 export class AnvilClient {
     constructor(nodeUrl = 'http://localhost:4001') {
@@ -24,6 +49,7 @@ export class AnvilClient {
             method,
             headers: {
                 'Content-Type': 'application/json',
+                'ngrok-skip-browser-warning': 'true',  // Required for ngrok free tier
             },
         };
 
@@ -44,10 +70,13 @@ export class AnvilClient {
     // Check node connection
     async checkConnection() {
         try {
+            console.log('Connecting to:', this.nodeUrl);
             const health = await this.getHealth();
+            console.log('Connected! Health:', health);
             this.connected = true;
             return { connected: true, health };
         } catch (err) {
+            console.error('Connection failed:', this.nodeUrl, err.message);
             this.connected = false;
             return { connected: false, error: err.message };
         }
@@ -90,6 +119,30 @@ export class AnvilClient {
     // Faucet (for testing)
     async faucet(amount = 1000) {
         return this.request('/faucet', 'POST', { amount });
+    }
+
+    // ================================================================
+    // MINING / PARTICIPATION
+    // ================================================================
+
+    // Register as light participant
+    async registerParticipant(address, publicKey) {
+        return this.request('/participate/register', 'POST', { address, publicKey });
+    }
+
+    // Poll for a challenge
+    async pollChallenge(address) {
+        return this.request('/participate/poll', 'POST', { address });
+    }
+
+    // Respond to a challenge
+    async respondChallenge(address, challengeId, response) {
+        return this.request('/participate/respond', 'POST', { address, challengeId, response });
+    }
+
+    // Get participant stats
+    async getParticipantStats(address) {
+        return this.request(`/participate/stats/${address}`);
     }
 }
 
