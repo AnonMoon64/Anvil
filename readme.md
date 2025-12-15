@@ -2,9 +2,9 @@
 
 **Sustained Mining Without Industrial Dominance**
 
-**Document Version:** 11.0  
+**Document Version:** 12.0  
 **Last Updated:** 2025-12-15  
-**Status:** ✅ Full Stack — BFT Consensus, React Wallet, Auto-Connectivity
+**Status:** ✅ Full Stack — BFT Consensus, React Wallet with Mining, Auto-Connectivity
 
 ---
 
@@ -165,14 +165,31 @@ Desktop wallet with local key storage:
 | Balance tracking | ✅ |
 | Multi-node support | ✅ |
 | 160-bit addresses | ✅ Ethereum-style |
+| **⛏️ In-Wallet Mining** | ✅ **NEW** |
+
+**Mining Features:**
+- Start/stop mining with one button
+- Answers challenges every 3 seconds
+- Earns 0.01 ANVIL per successful challenge
+- Effectiveness builds over ~120 days
+- Real-time stats (effectiveness %, total mined, challenges answered)
 
 ```bash
 # Run wallet (development)
 cd wallet && npm run dev
 
-# Build wallet executable
+# Build wallet executable (Windows)
 cd wallet && npm run build:exe
+
+# Download pre-built exe from GitHub Releases
 ```
+
+**How Mining Works:**
+1. Create or restore a wallet
+2. Click the **⛏️ Mine** tab
+3. Click **▶️ Start Mining**
+4. Keep the wallet open to earn ANVIL
+
 
 #### Auto-Connectivity Detection
 
