@@ -280,7 +280,6 @@ npm run adversarial   # All adversarial tests
 |------|------|------------|--------|
 | VPS | Dedicated server | ngrok tunnel | ✅ Stable |
 | Laptop | Coordinator + local node | Direct | ✅ Stable |
-| base44.com | Serverless/constrained | ngrok tunnel | ✅ Intermittent |
 
 ### Results
 

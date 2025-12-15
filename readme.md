@@ -91,7 +91,6 @@ Real network test across internet with 3 nodes:
 |------|------|--------|
 | VPS | Dedicated server | ✅ Stable |
 | Laptop | Local coordinator | ✅ Stable |
-| base44.com | Constrained/serverless | ✅ Intermittent (expected) |
 
 | Metric | Result |
 |--------|--------|
